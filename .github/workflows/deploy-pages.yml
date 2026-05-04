@@ -1,0 +1,76 @@
+name: Deploy Docs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonical content
+        uses: actions/checkout@v4
+        with:
+          repository: TECH-HUMAN/th-new-business-model
+          ref: main
+          ssh-key: ${{ secrets.TH_NEW_BUSINESS_MODEL_DEPLOY_KEY }}
+          path: canonical
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: canonical/05-docs-site/package-lock.json
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        working-directory: canonical/05-docs-site
+        run: npm ci
+
+      - name: Build Docs
+        working-directory: canonical/05-docs-site
+        run: npm run validate:custom-domain
+        env:
+          DOCS_SITE: https://docs.techhuman.com.br
+
+      - name: Add custom domain marker
+        run: echo "docs.techhuman.com.br" > canonical/05-docs-site/dist/CNAME
+
+      - name: Verify artifact
+        run: |
+          test -f canonical/05-docs-site/dist/index.html
+          test -f canonical/05-docs-site/dist/ecossistema/arquitetura-do-ecossistema/index.html
+          grep -q "Docs Tech Human" canonical/05-docs-site/dist/index.html
+          grep -q 'href="/_astro/' canonical/05-docs-site/dist/index.html
+          ! grep -q "/techhuman-website/docs/" canonical/05-docs-site/dist/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: canonical/05-docs-site/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
